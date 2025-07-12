@@ -1,30 +1,103 @@
 import pandas as pd
-import edhec_risk_kit_105 as erk
+import numpy as np
+from scipy import stats
+import matplotlib.pyplot as plt
 
-hfi = erk.get_hfi_returns()
-hfi.head()
+# ========== 1. Load your custom returns CSV ==========
 
-#Skewness#
+def load_returns(filepath=None):
+    """
+    Load portfolio returns from a CSV file.
+    CSV format: Date index + return columns in % or decimals.
+    """
+    if filepath:
+        df = pd.read_csv(filepath, index_col=0, parse_dates=True)
+        df = df / 100 if df.abs().max().max() > 1 else df
+        return df.dropna()
+    else:
+        raise ValueError("Please provide a valid file path to your returns CSV.")
 
-pd.concat([hfi.mean(), hfi.median(), hfi.mean()>hfi.median()], axis=1)
-hfi.shape
-scipy.stats.skew(hfi)
-normal_rets = np.random.normal(0, 0.15, (263, 1))    #np.random.normal(...) Draws random numbers from a normal (Gaussian) distribution.#
-normal_rets.mean(), normal_rets.std()
-erk.skewness(normal_rets)
+# ========== 2. Skewness & Kurtosis ==========
 
+def mean_median_skew_comparison(returns):
+    """
+    Compare mean vs. median and skewness.
+    Returns a DataFrame showing mean, median, and whether mean > median.
+    """
+    summary = pd.concat([
+        returns.mean().rename("Mean"),
+        returns.median().rename("Median"),
+        (returns.mean() > returns.median()).rename("Mean > Median")
+    ], axis=1)
+    return summary
 
+def calculate_skewness(returns):
+    """
+    Returns the skewness of the returns (as Series or scalar).
+    """
+    return returns.aggregate(stats.skew)
 
-#Kurtosis#
+def calculate_kurtosis(returns):
+    """
+    Returns the kurtosis of the returns (as Series or scalar).
+    """
+    return returns.aggregate(stats.kurtosis)
 
-erk.kurtosis(hfi)
-scipy.stats.kurtosis(hfi)
-scipy.stats.kurtosis(normal_rets)
-erk.kurtosis(normal_rets)
+# ========== 3. Normality Test ==========
 
-#Testing CRSP SmallCap and Large Cap returns for Normality#
+def test_normality(returns, level=0.01):
+    """
+    Applies the Jarque-Bera test to check for normality.
+    Returns True if the series is normal at the given significance level.
+    """
+    def is_normal(series):
+        _, pval = stats.jarque_bera(series)
+        return pval > level
+    if isinstance(returns, pd.DataFrame):
+        return returns.aggregate(is_normal)
+    else:
+        return is_normal(returns)
 
-ffme = erk.get_ffme_returns()
-erk.skewness(ffme)
-erk.kurtosis(ffme)
-erk.is_normal(ffme)
+# ========== 4. Generate Normal Sample for Reference ==========
+
+def generate_normal_returns(mean=0, std=0.15, n_obs=263):
+    """
+    Simulates returns from a normal distribution.
+    """
+    normal = np.random.normal(loc=mean, scale=std, size=(n_obs, 1))
+    return pd.Series(normal.flatten(), name="Normal Sample")
+
+# ========== 5. Run Full Skewness & Kurtosis Analysis ==========
+
+def analyze_distribution(returns):
+    """
+    Run and print full distribution stats and plots.
+    """
+    print("\n📊 Mean vs Median Comparison:")
+    print(mean_median_skew_comparison(returns))
+
+    print("\n📈 Skewness:")
+    print(calculate_skewness(returns).sort_values())
+
+    print("\n🔺 Kurtosis:")
+    print(calculate_kurtosis(returns).sort_values())
+
+    print("\n🧪 Normality Test (Jarque-Bera, 1% level):")
+    print(test_normality(returns, level=0.01))
+
+    returns.hist(bins=50, figsize=(12, 8), layout=(int(np.ceil(len(returns.columns)/2)), 2))
+    plt.suptitle("Return Distributions")
+    plt.tight_layout()
+    plt.show()
+
+# ========== Example Usage ==========
+
+# Load your own data:
+# returns = load_returns("your_returns_file.csv")
+# analyze_distribution(returns)
+
+# Example with simulated normal returns:
+if __name__ == "__main__":
+    # Simulate normal returns
+    normal_rets = generate_normal_returns()
+    analyze_distribution(pd.DataFrame(normal_rets))
