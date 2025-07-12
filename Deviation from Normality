@@ -1,0 +1,30 @@
+import pandas as pd
+import edhec_risk_kit_105 as erk
+
+hfi = erk.get_hfi_returns()
+hfi.head()
+
+#Skewness#
+
+pd.concat([hfi.mean(), hfi.median(), hfi.mean()>hfi.median()], axis=1)
+hfi.shape
+scipy.stats.skew(hfi)
+normal_rets = np.random.normal(0, 0.15, (263, 1))    #np.random.normal(...) Draws random numbers from a normal (Gaussian) distribution.#
+normal_rets.mean(), normal_rets.std()
+erk.skewness(normal_rets)
+
+
+
+#Kurtosis#
+
+erk.kurtosis(hfi)
+scipy.stats.kurtosis(hfi)
+scipy.stats.kurtosis(normal_rets)
+erk.kurtosis(normal_rets)
+
+#Testing CRSP SmallCap and Large Cap returns for Normality#
+
+ffme = erk.get_ffme_returns()
+erk.skewness(ffme)
+erk.kurtosis(ffme)
+erk.is_normal(ffme)
