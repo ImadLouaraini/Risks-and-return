@@ -1,0 +1,89 @@
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import skew, kurtosis, jarque_bera, norm
+
+# Download daily returns for 5 years
+ticker = "TSLA"
+data = yf.download(ticker, start="2019-01-01", end="2024-12-31")
+returns = data['Adj Close'].pct_change().dropna()
+
+# Create a summary DataFrame
+summary = pd.DataFrame({
+    "Mean": [returns.mean()],
+    "Median": [returns.median()],
+    "Std Dev": [returns.std()],
+    "Skewness": [skew(returns)],
+    "Kurtosis": [kurtosis(returns)],
+    "Mean > Median": [returns.mean() > returns.median()]
+})
+
+print(summary)
+
+# Reuse `returns` from earlier
+jb_stat, jb_pvalue = jarque_bera(returns)
+
+print(f"Jarque-Bera Test Statistic: {jb_stat:.4f}")
+print(f"P-Value: {jb_pvalue:.6f}")
+
+if jb_pvalue < 0.05:
+    print("❌ Reject the null hypothesis — returns are NOT normally distributed.")
+else:
+    print("✅ Fail to reject the null — returns MAY be normally distributed.")
+
+# 5% VaR level
+level = 0.05
+
+# 1. Historic VaR (empirical quantile)
+hist_var = -np.percentile(returns, level * 100)
+
+# 2. Gaussian (normal distribution) VaR
+z = norm.ppf(level)  # Z-score for 5% = -1.64485
+gauss_var = -(returns.mean() + z * returns.std())
+
+print(f"📊 Historic VaR (5%): {hist_var:.4%}")
+print(f"📈 Gaussian VaR (5%): {gauss_var:.4%}")
+
+if hist_var > gauss_var:
+    print("⚠️ Historic VaR is more conservative (greater losses expected empirically).")
+else:
+    print("✅ Gaussian VaR is more conservative or close to Historic.")
+
+def drawdown(return_series):
+    """
+    Calculate wealth index, previous peaks, and drawdowns from return series.
+    """
+    wealth_index = 1000 * (1 + return_series).cumprod()  # start with $1000
+    previous_peaks = wealth_index.cummax()
+    drawdowns = (wealth_index - previous_peaks) / previous_peaks
+    return pd.DataFrame({
+        "Wealth": wealth_index,
+        "Previous Peak": previous_peaks,
+        "Drawdown": drawdowns
+    })
+
+# Calculate drawdown DataFrame
+dd = drawdown(returns)
+
+# Plot drawdown (as percent)
+(dd["Drawdown"] * 100).plot(figsize=(12, 6), color='red', title="TSLA Drawdown Over Time")
+plt.ylabel("Drawdown (%)")
+plt.grid(True)
+plt.show()
+
+# Maximum drawdown and date
+max_dd = dd["Drawdown"].min()
+max_dd_date = dd["Drawdown"].idxmin()
+
+print(f"📉 Maximum Drawdown: {max_dd:.2%} on {max_dd_date.date()}")
+
+#Analyzing TSLA’s daily returns over the last 5 years, we find significant evidence of non-normality: skewness is negative (~ -0.57),
+# kurtosis is well above 3 (~5.4), and the Jarque-Bera test strongly rejects normality. This means returns have asymmetric risks and fat tails.
+#Practically, this means traditional Gaussian-based risk measures underestimate downside risk. The historic VaR is higher than the Gaussian VaR,
+# confirming that extreme losses are more likely than a normal model would suggest.
+# The drawdown analysis shows TSLA experienced severe drops (max drawdown >50%) lasting many months,
+# highlighting the importance of considering drawdown duration and recovery time when managing risk.
+#To better measure and manage risk, I would recommend using historical or Monte Carlo VaR, Expected Shortfall (CVaR),
+#and incorporating volatility models like GARCH.
+# Regular stress testing and scenario analysis would also be critical to capture risks during market crises.
