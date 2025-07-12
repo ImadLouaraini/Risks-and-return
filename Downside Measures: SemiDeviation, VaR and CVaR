@@ -1,0 +1,104 @@
+# Enable autoreload for Jupyter notebooks (ignored in script context)
+try:
+    %load_ext autoreload
+    %autoreload 2
+except:
+    pass
+
+import pandas as pd
+import numpy as np
+from scipy.stats import norm, skew, kurtosis
+import matplotlib.pyplot as plt
+
+# ========== 1. Upload your own CSV file ==========
+
+def load_portfolio(filepath=None):
+    """
+    Loads portfolio returns from a CSV file. The file should have datetime index and returns in % or decimal.
+    If no path is given, loads sample data (e.g., hedge fund index returns).
+    """
+    if filepath:
+        data = pd.read_csv(filepath, index_col=0, parse_dates=True)
+        data = data / 100 if data.abs().max().max() > 1 else data  # auto scale if necessary
+        return data.dropna()
+    else:
+        # Sample fallback (replace with any default dataset you want)
+        raise ValueError("No file provided. Please upload a CSV file.")
+
+# ========== 2. Risk Measures ==========
+
+def semideviation(r):
+    """
+    Returns the semideviation: standard deviation of negative returns
+    """
+    is_negative = r < 0
+    return r[is_negative].std(ddof=0)
+
+def var_historic(r, level=5):
+    """
+    Historic Value at Risk (VaR)
+    """
+    if isinstance(r, pd.DataFrame):
+        return r.aggregate(var_historic, level=level)
+    elif isinstance(r, pd.Series):
+        return -np.percentile(r, level)
+    else:
+        raise TypeError("Expected r to be Series or DataFrame")
+
+def cvar_historic(r, level=5):
+    """
+    Conditional VaR: Expected loss beyond the VaR threshold
+    """
+    if isinstance(r, pd.Series):
+        var_level = np.percentile(r, level)
+        return -r[r <= var_level].mean()
+    elif isinstance(r, pd.DataFrame):
+        return r.aggregate(cvar_historic, level=level)
+    else:
+        raise TypeError("Expected r to be Series or DataFrame")
+
+def var_gaussian(r, level=5, modified=False):
+    """
+    Parametric Gaussian VaR. If `modified=True`, uses Cornish-Fisher modification.
+    """
+    z = norm.ppf(level/100)
+    if modified:
+        s = skew(r)
+        k = kurtosis(r)
+        z = (z +
+            (z**2 - 1) * s / 6 +
+            (z**3 - 3 * z) * (k - 3) / 24 -
+            (2 * z**3 - 5 * z) * (s**2) / 36)
+    return -(r.mean() + z * r.std(ddof=0))
+
+# ========== 3. Run Risk Analysis ==========
+
+def analyze_risk(returns):
+    """
+    Computes and plots various VaR metrics.
+    """
+    var_table = pd.concat([
+        var_gaussian(returns, level=5).to_frame(name='Gaussian'),
+        var_gaussian(returns, level=5, modified=True).to_frame(name='Cornish-Fisher'),
+        var_historic(returns, level=5).to_frame(name='Historic')
+    ], axis=1)
+
+    var_table.plot.bar(title="Value at Risk (5%)", figsize=(12, 6))
+    plt.ylabel("VaR (negative = loss)")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    print("Semideviation:")
+    print(semideviation(returns).sort_values())
+    
+    print("\nConditional VaR (CVaR):")
+    print(cvar_historic(returns, level=5).sort_values())
+
+    print("\nSkewness:")
+    print(returns.skew().sort_values(ascending=False))
+
+    print("\nKurtosis:")
+    print(returns.kurtosis().sort_values(ascending=False))
+
+    return var_table
