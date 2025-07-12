@@ -1,15 +1,95 @@
-def drawdown(return_series: pd.Series):
-    """Takes a time series of asset returns.
-       returns a DataFrame with columns for
-       the wealth index, 
-       the previous peaks, and 
-       the percentage drawdown
-    """
-    wealth_index = 1000*(1+return_series).cumprod()
-    previous_peaks = wealth_index.cummax()
-    drawdowns = (wealth_index - previous_peaks)/previous_peaks
-    return pd.DataFrame({"Wealth": wealth_index, 
-                         "Previous Peak": previous_peaks, 
-                         "Drawdown": drawdowns})
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 
-drawdown(rets["LargeCap"]).head()
+# ========== 1. Load Your Own CSV File ==========
+
+def load_returns(filepath=None):
+    if filepath:
+        df = pd.read_csv(filepath, index_col=0, parse_dates=True)
+        df = df / 100 if df.abs().max().max() > 1 else df
+        return df.dropna()
+    else:
+        raise ValueError("Please provide a valid CSV file path.")
+
+# ========== 2. Drawdown Calculation ==========
+
+def drawdown(return_series: pd.Series):
+    wealth_index = 1000 * (1 + return_series).cumprod()
+    previous_peaks = wealth_index.cummax()
+    drawdowns = (wealth_index - previous_peaks) / previous_peaks
+    return pd.DataFrame({
+        "Wealth": wealth_index,
+        "Previous Peak": previous_peaks,
+        "Drawdown": drawdowns
+    })
+
+# ========== 3. Drawdown Duration and Recovery Time ==========
+
+def get_drawdown_durations(drawdown_df: pd.DataFrame):
+    """
+    Calculates drawdown durations and recovery time for the worst drawdown.
+    """
+    is_drawdown = drawdown_df["Drawdown"] < 0
+    drawdown_periods = is_drawdown.astype(int).diff().fillna(0)
+
+    # Identify start and end of drawdowns
+    starts = drawdown_df.index[drawdown_periods == 1]
+    ends = drawdown_df.index[drawdown_periods == -1]
+
+    # If drawdown is ongoing at the end, assume last date as end
+    if len(starts) > len(ends):
+        ends = ends.append(pd.Index([drawdown_df.index[-1]]))
+
+    durations = (ends.to_series().reset_index(drop=True) -
+                 starts.to_series().reset_index(drop=True))
+    
+    duration_df = pd.DataFrame({
+        "Start": starts,
+        "End": ends,
+        "Duration": durations
+    })
+
+    # Find the period containing the max drawdown
+    max_dd_date = drawdown_df["Drawdown"].idxmin()
+    in_period = (duration_df["Start"] <= max_dd_date) & (duration_df["End"] >= max_dd_date)
+    max_duration_row = duration_df[in_period].iloc[0] if in_period.any() else None
+
+    return duration_df, max_duration_row
+
+# ========== 4. Visualization ==========
+
+def plot_drawdown(drawdown_df: pd.DataFrame, title="Drawdown Curve"):
+    plt.figure(figsize=(10, 6))
+    drawdown_df["Drawdown"].plot(color='crimson')
+    plt.title(title)
+    plt.ylabel("Drawdown (%)")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+# ========== 5. Full Analysis Function ==========
+
+def analyze_drawdown(returns: pd.DataFrame, column_name: str):
+    if column_name not in returns.columns:
+        raise ValueError(f"{column_name} not found in returns.")
+
+    dd = drawdown(returns[column_name])
+
+    # Max drawdown info
+    max_dd = dd["Drawdown"].min()
+    max_dd_date = dd["Drawdown"].idxmin()
+    print(f"\n📉 Max Drawdown: {max_dd:.2%} on {max_dd_date.date()}")
+
+    # Duration analysis
+    duration_df, max_duration = get_drawdown_durations(dd)
+    if max_duration is not None:
+        print(f"🕒 Max Drawdown Duration: {max_duration['Duration'].days} days")
+        print(f"🗓️ Period: {max_duration['Start'].date()} to {max_duration['End'].date()}")
+    else:
+        print("No drawdown period found.")
+
+    # Plot
+    plot_drawdown(dd, title=f"{column_name} - Drawdown Curve")
+
+    return dd, duration_df
