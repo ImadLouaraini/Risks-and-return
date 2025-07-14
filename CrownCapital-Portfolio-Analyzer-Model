@@ -1,0 +1,370 @@
+import pandas as pd
+import numpy as np
+from scipy.stats import skew, kurtosis
+import os
+from flask import Flask, request, render_template_string
+import plotly.graph_objs as go
+import plotly.io as pio
+
+app = Flask(__name__)
+
+HTML_FORM = '''
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Luxury Portfolio & Hedge Fund Analyzer</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #181c2b 0%, #232946 100%);
+      color: #f5f5f5;
+      font-family: 'Montserrat', sans-serif;
+      min-height: 100vh;
+    }
+    .lux-header {
+      background: #10131e;
+      color: #FFD700;
+      padding: 2rem 0 1rem 0;
+      text-align: center;
+      border-bottom: 2px solid #FFD70022;
+      box-shadow: 0 4px 24px #0004;
+    }
+    .lux-header img {
+      height: 60px;
+      margin-bottom: 0.5rem;
+    }
+    .lux-card {
+      background: #232946;
+      border-radius: 1.5rem;
+      box-shadow: 0 4px 32px #0002;
+      border: 1px solid #FFD70033;
+      padding: 2rem 2.5rem;
+      margin: 2rem auto;
+      max-width: 600px;
+    }
+    .lux-card label {
+      color: #FFD700;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    .lux-btn {
+      background: linear-gradient(90deg, #FFD700 0%, #ffb300 100%);
+      color: #181c2b;
+      font-weight: 900;
+      border: none;
+      border-radius: 2rem;
+      padding: 0.75rem 2.5rem;
+      font-size: 1.2rem;
+      transition: box-shadow 0.2s, transform 0.2s;
+      box-shadow: 0 2px 8px #FFD70033;
+    }
+    .lux-btn:hover {
+      box-shadow: 0 4px 24px #FFD70099;
+      transform: translateY(-2px) scale(1.03);
+      color: #232946;
+    }
+    .lux-results {
+      background: #181c2b;
+      border-radius: 1.5rem;
+      border: 1px solid #FFD70033;
+      box-shadow: 0 2px 16px #0002;
+      padding: 2rem;
+      margin: 2rem auto 0 auto;
+      max-width: 700px;
+      color: #FFD700;
+      font-size: 1.1rem;
+      white-space: normal;
+    }
+    .result-section {
+      margin-bottom: 2rem;
+    }
+    .result-title {
+      font-size: 1.3rem;
+      font-weight: 900;
+      color: #FFD700;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .result-table {
+      color: #fff;
+      background: #232946;
+      border-radius: 1rem;
+      border: 1px solid #FFD70033;
+      margin-bottom: 1rem;
+      width: 100%;
+    }
+    .result-table th, .result-table td {
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid #FFD70022;
+    }
+    .result-table th {
+      color: #FFD700;
+      font-weight: 700;
+      background: #232946;
+    }
+    .result-table tr:last-child td {
+      border-bottom: none;
+    }
+    .emoji {
+      font-size: 1.5rem;
+      margin-right: 0.3rem;
+    }
+    .plotly-graph {
+      background: #232946;
+      border-radius: 1rem;
+      margin-bottom: 1.5rem;
+      padding: 1rem;
+    }
+    @media (max-width: 600px) {
+      .lux-card, .lux-results { padding: 1rem; }
+      .lux-header { font-size: 1.2rem; }
+      .plotly-graph { padding: 0.2rem; }
+    }
+  </style>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+  <div class="lux-header">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4c/Crown_of_Saint_Stephen.svg" alt="King Crown Logo">
+    <h1 style="font-weight:900; letter-spacing:2px;">Crown Capital Analytics</h1>
+    <p style="font-size:1.2rem; color:#FFD700cc;">Analyze your portfolios and hedge fund indices with style</p>
+  </div>
+  <div class="lux-card">
+    <form method=post enctype=multipart/form-data>
+      <div class="mb-3">
+        <label for="me_file">Upload Portfolio CSV (e.g., Portfolios_Formed_on_ME_monthly_EW.csv):</label>
+        <input type=file name=me_file class="form-control" required>
+      </div>
+      <div class="mb-3">
+        <label for="edhec_file">Upload Hedge Fund Indices CSV (e.g., edhec-hedgefundindices.csv):</label>
+        <input type=file name=edhec_file class="form-control" required>
+      </div>
+      <div class="row mb-3">
+        <div class="col">
+          <label for="main_start">Main Period Start:</label>
+          <input type="month" name="main_start" class="form-control" value="1990-01">
+        </div>
+        <div class="col">
+          <label for="main_end">Main Period End:</label>
+          <input type="month" name="main_end" class="form-control" value="2020-12">
+        </div>
+      </div>
+      <div class="row mb-3">
+        <div class="col">
+          <label for="sub_start">Sub Period Start:</label>
+          <input type="month" name="sub_start" class="form-control" value="1999-01">
+        </div>
+        <div class="col">
+          <label for="sub_end">Sub Period End:</label>
+          <input type="month" name="sub_end" class="form-control" value="2015-12">
+        </div>
+      </div>
+      <div class="text-center">
+        <button type=submit class="lux-btn">Analyze</button>
+      </div>
+    </form>
+  </div>
+  {% if results %}
+    <div class="lux-results">{{ results|safe }}</div>
+  {% endif %}
+  <footer style="text-align:center; margin:2rem 0 1rem 0; color:#FFD700; font-family:'Montserrat',sans-serif; font-size:1.1rem; letter-spacing:1px; opacity:0.85;">
+    <span>Signed by <b>imad louaraini</b></span>
+  </footer>
+</body>
+</html>
+'''
+
+# Statistical functions
+def annualized_return(r):
+    compounded_growth = (1 + r).prod()
+    n_months = r.shape[0]
+    return compounded_growth ** (12 / n_months) - 1
+
+def annualized_volatility(r):
+    return r.std() * np.sqrt(12)
+
+def max_drawdown(r):
+    wealth_index = (1 + r).cumprod()
+    previous_peaks = wealth_index.cummax()
+    drawdowns = (previous_peaks - wealth_index) / previous_peaks
+    return drawdowns.max(), drawdowns.idxmax()
+
+def clean_series(series):
+    s = pd.Series(series).dropna()
+    return s[np.isfinite(s)]
+
+def semideviation(series):
+    s = clean_series(series)
+    return s[s < s.mean()].std()
+
+def safe_stat(func, series):
+    s = clean_series(series)
+    return func(s) if not s.empty else np.nan
+
+@app.route('/', methods=['GET', 'POST'])
+def upload_file():
+    results = ""
+    plot_html = ""
+    if request.method == 'POST':
+        me_file = request.files['me_file']
+        edhec_file = request.files['edhec_file']
+        # Get date ranges from form
+        main_start = request.form.get('main_start', '1990-01')
+        main_end = request.form.get('main_end', '2020-12')
+        sub_start = request.form.get('sub_start', '1999-01')
+        sub_end = request.form.get('sub_end', '2015-12')
+        # Convert to datetime
+        main_start_dt = pd.to_datetime(main_start + '-01')
+        main_end_dt = pd.to_datetime(main_end + '-01') + pd.offsets.MonthEnd(0)
+        sub_start_dt = pd.to_datetime(sub_start + '-01')
+        sub_end_dt = pd.to_datetime(sub_end + '-01') + pd.offsets.MonthEnd(0)
+
+        if not me_file or not edhec_file:
+            results = "<div class='alert alert-warning'>Please upload both files.</div>"
+            return render_template_string(HTML_FORM, results=results)
+
+        # --- Load ME file ---
+        df = pd.read_csv(me_file)
+        df.columns = df.columns.str.strip()
+        date_col = df.columns[0]
+        df[date_col] = pd.to_datetime(df[date_col], format='%Y%m')
+        df.set_index(date_col, inplace=True)
+        df.replace([-99.99, -999], np.nan, inplace=True)
+
+        lo20_col = next(col for col in df.columns if 'lo 20' in col.lower())
+        hi20_col = next(col for col in df.columns if 'hi 20' in col.lower())
+
+        lo20_returns = df[lo20_col] / 100
+        hi20_returns = df[hi20_col] / 100
+        lo20_returns = lo20_returns.dropna()
+        hi20_returns = hi20_returns.dropna()
+
+        # Slice for main period
+        lo20_main = lo20_returns.loc[(lo20_returns.index >= main_start_dt) & (lo20_returns.index <= main_end_dt)]
+        hi20_main = hi20_returns.loc[(hi20_returns.index >= main_start_dt) & (hi20_returns.index <= main_end_dt)]
+
+        # Plotly graph for returns (main period)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=lo20_main.index, y=lo20_main, mode='lines', name='Lo 20', line=dict(color='#FFD700', width=3)))
+        fig.add_trace(go.Scatter(x=hi20_main.index, y=hi20_main, mode='lines', name='Hi 20', line=dict(color='#00BFFF', width=3)))
+        fig.update_layout(
+            title='Portfolio Returns Over Time',
+            plot_bgcolor='#232946',
+            paper_bgcolor='#232946',
+            font=dict(color='#FFD700'),
+            legend=dict(font=dict(color='#FFD700')),
+            xaxis=dict(title='Date', color='#FFD700'),
+            yaxis=dict(title='Return', color='#FFD700'),
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        plot_html = pio.to_html(fig, full_html=False, include_plotlyjs=False, config={"displayModeBar": False})
+
+        # Full Period (user-selected)
+        results += f"""
+        <div class='result-section'>
+          <div class='result-title'><span class='emoji'>📈</span> <span>Results: <b>Main Period</b> ({main_start_dt.strftime('%Y-%m')} to {main_end_dt.strftime('%Y-%m')})</span></div>
+          <table class='result-table'>
+            <tr><th>Portfolio</th><th>Annualized Return</th><th>Annualized Volatility</th></tr>
+            <tr><td>Lo 20</td><td>{{:.2f}}%</td><td>{{:.2f}}%</td></tr>
+            <tr><td>Hi 20</td><td>{{:.2f}}%</td><td>{{:.2f}}%</td></tr>
+          </table>
+        </div>
+        """.format(
+            annualized_return(lo20_main) * 100,
+            annualized_volatility(lo20_main) * 100,
+            annualized_return(hi20_main) * 100,
+            annualized_volatility(hi20_main) * 100
+        )
+
+        # Sub Period (user-selected)
+        lo20_sub = lo20_returns.loc[(lo20_returns.index >= sub_start_dt) & (lo20_returns.index <= sub_end_dt)]
+        hi20_sub = hi20_returns.loc[(hi20_returns.index >= sub_start_dt) & (hi20_returns.index <= sub_end_dt)]
+        results += f"""
+        <div class='result-section'>
+          <div class='result-title'><span class='emoji'>🕰️</span> <span>Results: <b>Sub Period</b> ({sub_start_dt.strftime('%Y-%m')} to {sub_end_dt.strftime('%Y-%m')})</span></div>
+          <table class='result-table'>
+            <tr><th>Portfolio</th><th>Annualized Return</th><th>Annualized Volatility</th></tr>
+            <tr><td>Lo 20</td><td>{{:.2f}}%</td><td>{{:.2f}}%</td></tr>
+            <tr><td>Hi 20</td><td>{{:.2f}}%</td><td>{{:.2f}}%</td></tr>
+          </table>
+        </div>
+        """.format(
+            annualized_return(lo20_sub) * 100,
+            annualized_volatility(lo20_sub) * 100,
+            annualized_return(hi20_sub) * 100,
+            annualized_volatility(hi20_sub) * 100
+        )
+
+        lo_dd_val, lo_dd_date = max_drawdown(lo20_sub)
+        hi_dd_val, hi_dd_date = max_drawdown(hi20_sub)
+        results += f"""
+        <div class='result-section'>
+          <div class='result-title'><span class='emoji'>📉</span> <span>Max Drawdowns (Sub Period)</span></div>
+          <table class='result-table'>
+            <tr><th>Portfolio</th><th>Max Drawdown</th><th>Date</th></tr>
+            <tr><td>Lo 20</td><td>{{:.2f}}%</td><td>{{}}</td></tr>
+            <tr><td>Hi 20</td><td>{{:.2f}}%</td><td>{{}}</td></tr>
+          </table>
+        </div>
+        """.format(
+            lo_dd_val * 100, lo_dd_date.strftime('%Y-%m'),
+            hi_dd_val * 100, hi_dd_date.strftime('%Y-%m')
+        )
+
+        # EDHEC Analysis
+        df = pd.read_csv(edhec_file)
+        date_col = df.columns[0]
+        df[date_col] = pd.to_datetime(df[date_col], errors='coerce', dayfirst=True)
+        df.set_index(date_col, inplace=True)
+        df = df.apply(pd.to_numeric, errors='coerce')
+
+        df_0918 = df.loc['2009':'2018']
+        df_0018 = df.loc['2000':'2018']
+        results_dict = {}
+
+        for col in df_0918.columns:
+            results_dict[col] = {
+                'semidev_2009_2018': safe_stat(semideviation, df_0918[col]),
+                'skew_2009_2018': safe_stat(skew, df_0918[col])
+            }
+
+        for col in df_0018.columns:
+            if col not in results_dict:
+                results_dict[col] = {}
+            results_dict[col]['kurt_2000_2018'] = safe_stat(kurtosis, df_0018[col])
+
+        highest_semidev = max(results_dict.items(), key=lambda x: x[1]['semidev_2009_2018'] if not np.isnan(x[1]['semidev_2009_2018']) else -np.inf)
+        lowest_semidev = min(results_dict.items(), key=lambda x: x[1]['semidev_2009_2018'] if not np.isnan(x[1]['semidev_2009_2018']) else np.inf)
+        most_neg_skew = min(results_dict.items(), key=lambda x: x[1]['skew_2009_2018'] if not np.isnan(x[1]['skew_2009_2018']) else np.inf)
+        highest_kurt = max(results_dict.items(), key=lambda x: x[1]['kurt_2000_2018'] if not np.isnan(x[1]['kurt_2000_2018']) else -np.inf)
+
+        results += """
+        <div class='result-section'>
+          <div class='result-title'><span class='emoji'>🏆</span> <span>Hedge Fund Indices Analysis</span></div>
+          <table class='result-table'>
+            <tr><th>Metric</th><th>Index</th></tr>
+            <tr><td>Highest semideviation (2009–2018)</td><td>🥇 {}</td></tr>
+            <tr><td>Lowest semideviation (2009–2018)</td><td>🟢 {}</td></tr>
+            <tr><td>Most negatively skewed (2009–2018)</td><td>🔻 {}</td></tr>
+            <tr><td>Highest kurtosis (2000–2018)</td><td>✨ {}</td></tr>
+          </table>
+        </div>
+        """.format(
+            highest_semidev[0],
+            lowest_semidev[0],
+            most_neg_skew[0],
+            highest_kurt[0]
+        )
+
+    # Render with Plotly graph if available
+    if plot_html:
+        results = f'<div class="plotly-graph">' + plot_html + '</div>' + results
+    return render_template_string(HTML_FORM, results=results)
+
+if __name__ == '__main__':
+    app.run(debug=True)
