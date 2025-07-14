@@ -1,206 +1,87 @@
 import pandas as pd
 import numpy as np
-import re
-import os
+import matplotlib.pyplot as plt
 
-# --- Interactive file selection ---
-file_path = input("Enter the path to your CSV file: ").strip()
-while not os.path.isfile(file_path):
-    print("File not found. Please try again.")
-    file_path = input("Enter the path to your CSV file: ").strip()
+# Load the dataset
+file_path = r'C:/Users/imadl/Desktop/Stocks/Portfolios_Formed_on_ME_monthly_EW.csv'
+df = pd.read_csv(file_path)
 
-# --- Detect header row automatically ---
-header_row = None
-with open(file_path, 'r', encoding='utf-8') as f:
-    for i, line in enumerate(f):
-        if ('Lo 20' in line or 'Low 20' in line or 'Hi 20' in line or 'High 20' in line):
-            header_row = i
-            print(f"Detected header row: {header_row} -> {line.strip()}")
-            break
-if header_row is None:
-    print("Could not find a header row with 'Lo 20'/'Low 20' or 'Hi 20'/'High 20'.")
-    header_row = int(input("Please enter the header row number (0-based): "))
+# --- Step 1: Clean and prepare data ---
+df.columns = df.columns.str.strip()  # Remove leading/trailing spaces
 
-prices = pd.read_csv(file_path, header=header_row)
-prices = prices.replace([-99.99, -999], np.nan)
-# If 0 is not a valid return, uncomment the next line:
-# prices = prices.replace(0, np.nan)
+# Rename first column as date and parse it
+date_col = df.columns[0]
+df[date_col] = pd.to_datetime(df[date_col], format='%Y%m')
+df.set_index(date_col, inplace=True)
 
-print("Columns detected in your file:")
-for i, col in enumerate(prices.columns):
-    print(f"{i}: '{col}'")
+# Replace invalid values with NaN
+df.replace([-99.99, -999], np.nan, inplace=True)
 
-# --- Interactive date column selection ---
-date_col = input("Enter the name of the date column (or leave blank to auto-detect): ").strip()
-if not date_col:
-    for col in prices.columns:
-        if 'date' in col.lower():
-            date_col = col
-            break
-    if not date_col:
-        date_col = prices.columns[0]
-        print(f"Auto-selected first column as date: {date_col}")
+# --- Step 2: Identify relevant columns ---
+lo20_col = next(col for col in df.columns if 'lo 20' in col.lower())
+hi20_col = next(col for col in df.columns if 'hi 20' in col.lower())
 
-sample_date = str(prices[date_col].iloc[0])
-print(f"Sample date value: {sample_date}")
-date_format = input("Enter the date format (e.g., %Y%m, %Y-%m, leave blank to auto-detect): ").strip()
+# --- Step 3: Convert returns from % to decimal ---
+lo20_returns = df[lo20_col] / 100
+hi20_returns = df[hi20_col] / 100
+lo20_returns = lo20_returns.dropna()
+hi20_returns = hi20_returns.dropna()
 
-if date_format:
-    prices[date_col] = pd.to_datetime(prices[date_col], errors='coerce', format=date_format)
-else:
-    prices[date_col] = pd.to_datetime(prices[date_col], errors='coerce', infer_datetime_format=True)
-    # If still too many NaT, try with format='%Y%m'
-    if prices[date_col].isna().mean() > 0.5:
-        print('Too many NaT with infer_datetime_format, trying format="%Y%m"...')
-        prices[date_col] = pd.to_datetime(prices[date_col], errors='coerce', format='%Y%m')
-    # If still too many NaT, try with format='%Y-%m'
-    if prices[date_col].isna().mean() > 0.5:
-        print('Too many NaT with format="%Y%m", trying format="%Y-%m"...')
-        prices[date_col] = pd.to_datetime(prices[date_col], errors='coerce', format='%Y-%m')
+# --- Step 4: Define analysis functions ---
+def annualized_return(r):
+    compounded_growth = (1 + r).prod()
+    n_months = r.shape[0]
+    return compounded_growth**(12 / n_months) - 1
 
-print('Date column NaN count after parsing:', prices[date_col].isna().sum())
-prices = prices.dropna(subset=[date_col])
-prices.set_index(date_col, inplace=True)
-print('Date column found and set as index.')
+def annualized_volatility(r):
+    return r.std() * np.sqrt(12)
 
-print('Index type:', type(prices.index))
-print('First few index values:', prices.index[:5])
-print('First few rows after date handling:')
-print(prices.head())
-
-# --- Interactive low/high column selection ---
-print("Columns available for analysis:")
-for i, col in enumerate(prices.columns):
-    print(f"{i}: '{col}'")
-lo20_col = input("Enter the column name for the low portfolio (or leave blank to auto-detect): ").strip()
-hi20_col = input("Enter the column name for the high portfolio (or leave blank to auto-detect): ").strip()
-
-def find_col(possibilities, columns):
-    for col in columns:
-        col_lower = col.lower()
-        if any(p in col_lower for p in possibilities) and '20' in col:
-            return col
-    return None
-
-if not lo20_col:
-    lo20_col = find_col(['lo', 'low'], prices.columns)
-if not hi20_col:
-    hi20_col = find_col(['hi', 'high'], prices.columns)
-
-if not lo20_col or not hi20_col:
-    raise KeyError("Could not find columns for 'Lo 20'/'Low 20' or 'Hi 20'/'High 20'. Please check the column names printed above.")
-
-prices[lo20_col] = pd.to_numeric(prices[lo20_col], errors='coerce')
-prices[hi20_col] = pd.to_numeric(prices[hi20_col], errors='coerce')
-
-print(f"Using column for Lo 20: '{lo20_col}'")
-print(f"Using column for Hi 20: '{hi20_col}'")
-
-# --- Returns/prices detection and calculations ---
-def is_return_series(series):
-    s = series.dropna()
-    return (s.between(-1, 1).mean() > 0.95)
-
-lo20_is_return = is_return_series(prices[lo20_col])
-hi20_is_return = is_return_series(prices[hi20_col])
-
-if lo20_is_return:
-    print(f"Column '{lo20_col}' detected as RETURNS.")
-    lo20_returns = prices[lo20_col].dropna() / 100
-else:
-    print(f"Column '{lo20_col}' detected as PRICES. Calculating returns.")
-    lo20_returns = prices[lo20_col].pct_change().dropna()
-
-if hi20_is_return:
-    print(f"Column '{hi20_col}' detected as RETURNS.")
-    hi20_returns = prices[hi20_col].dropna() / 100
-else:
-    print(f"Column '{hi20_col}' detected as PRICES. Calculating returns.")
-    hi20_returns = prices[hi20_col].pct_change().dropna()
-
-print('lo20_returns length:', len(lo20_returns), 'NaN count:', lo20_returns.isna().sum())
-print('hi20_returns length:', len(hi20_returns), 'NaN count:', hi20_returns.isna().sum())
-print("lo20_returns after cleaning:", lo20_returns.head(20))
-print("hi20_returns after cleaning:", hi20_returns.head(20))
-
-# --- Full period calculations ---
-lo20_full = lo20_returns.dropna()
-hi20_full = hi20_returns.dropna()
-print('lo20_full length:', len(lo20_full), 'NaN count:', lo20_full.isna().sum())
-print('hi20_full length:', len(hi20_full), 'NaN count:', hi20_full.isna().sum())
-
-def safe_annualized_return(returns):
-    if returns.count() == 0:
-        print("Warning: Empty or all-NaN series for annualized return.")
-        return np.nan
-    cumulative_return = (1 + returns).prod()
-    n_months = returns.shape[0]
-    return cumulative_return ** (12 / n_months) - 1
-
-def safe_annualized_volatility(returns):
-    if returns.count() == 0:
-        print("Warning: Empty or all-NaN series for annualized volatility.")
-        return np.nan
-    return returns.std() * np.sqrt(12)
-
-def max_drawdown(returns):
-    if returns.count() == 0:
-        print("Warning: Empty or all-NaN series for max drawdown.")
-        return np.nan, None
-    wealth_index = (1 + returns).cumprod()
+def max_drawdown(r):
+    wealth_index = (1 + r).cumprod()
     previous_peaks = wealth_index.cummax()
     drawdowns = (previous_peaks - wealth_index) / previous_peaks
     max_dd_value = drawdowns.max()
     max_dd_date = drawdowns.idxmax()
     return max_dd_value, max_dd_date
 
-lo20_ann_return_full = safe_annualized_return(lo20_full)
-lo20_ann_vol_full = safe_annualized_volatility(lo20_full)
-hi20_ann_return_full = safe_annualized_return(hi20_full)
-hi20_ann_vol_full = safe_annualized_volatility(hi20_full)
+# --- Step 5: Full period analysis ---
+lo20_ann_return = annualized_return(lo20_returns)
+hi20_ann_return = annualized_return(hi20_returns)
+lo20_ann_vol = annualized_volatility(lo20_returns)
+hi20_ann_vol = annualized_volatility(hi20_returns)
 
-print(f"[Full Period] Annualized Return of Lo 20: {lo20_ann_return_full*100:.2f}%")
-print(f"[Full Period] Annualized Volatility of Lo 20: {lo20_ann_vol_full*100:.2f}%")
-print(f"[Full Period] Annualized Return of Hi 20: {hi20_ann_return_full*100:.2f}%")
-print(f"[Full Period] Annualized Volatility of Hi 20: {hi20_ann_vol_full*100:.2f}%")
+print("\n=== Results: Full Period ===")
+print(f"Lo 20 Annualized Return: {lo20_ann_return*100:.2f}%")
+print(f"Lo 20 Annualized Volatility: {lo20_ann_vol*100:.2f}%")
+print(f"Hi 20 Annualized Return: {hi20_ann_return*100:.2f}%")
+print(f"Hi 20 Annualized Volatility: {hi20_ann_vol*100:.2f}%")
 
-# --- 1999-2015 calculations ---
-if isinstance(prices.index, pd.DatetimeIndex):
-    lo20_9915 = lo20_returns.loc['1999-01-01':'2015-12-31'].dropna()
-    hi20_9915 = hi20_returns.loc['1999-01-01':'2015-12-31'].dropna()
-else:
-    print('Warning: Index is not DatetimeIndex, skipping 1999-2015 calculations.')
-    lo20_9915 = hi20_9915 = pd.Series(dtype=float)
+# --- Step 6: 1999–2015 period analysis ---
+lo20_9915 = lo20_returns.loc['1999-01-01':'2015-12-31']
+hi20_9915 = hi20_returns.loc['1999-01-01':'2015-12-31']
 
-print('lo20_9915 length:', len(lo20_9915), 'NaN count:', lo20_9915.isna().sum())
-print('hi20_9915 length:', len(hi20_9915), 'NaN count:', hi20_9915.isna().sum())
+lo20_ann_return_9915 = annualized_return(lo20_9915)
+hi20_ann_return_9915 = annualized_return(hi20_9915)
+lo20_ann_vol_9915 = annualized_volatility(lo20_9915)
+hi20_ann_vol_9915 = annualized_volatility(hi20_9915)
 
-def debug_series(label, series):
-    print(f"{label} count: {series.count()}")
-    print(f"{label} head:\n{series.head()}")
+print("\n=== Results: 1999–2015 Period ===")
+print(f"Lo 20 Annualized Return: {lo20_ann_return_9915*100:.2f}%")
+print(f"Lo 20 Annualized Volatility: {lo20_ann_vol_9915*100:.2f}%")
+print(f"Hi 20 Annualized Return: {hi20_ann_return_9915*100:.2f}%")
+print(f"Hi 20 Annualized Volatility: {hi20_ann_vol_9915*100:.2f}%")
 
-debug_series('lo20_9915', lo20_9915)
-debug_series('hi20_9915', hi20_9915)
+# --- Step 7: Max Drawdowns for 1999–2015 ---
+lo20_max_dd_value, lo20_max_dd_date = max_drawdown(lo20_9915)
+hi20_max_dd_value, hi20_max_dd_date = max_drawdown(hi20_9915)
 
-lo20_ann_return_9915 = safe_annualized_return(lo20_9915)
-lo20_ann_vol_9915 = safe_annualized_volatility(lo20_9915)
-hi20_ann_return_9915 = safe_annualized_return(hi20_9915)
-hi20_ann_vol_9915 = safe_annualized_volatility(hi20_9915)
+print("\n=== Assignment Answers: Max Drawdown (1999–2015) ===")
+print(f"Q11: Max Drawdown of Lo 20 (SmallCap): {lo20_max_dd_value*100:.2f}%")
+print(f"Q12: Max Drawdown Date of Lo 20 (SmallCap): {lo20_max_dd_date.strftime('%Y-%m')}")
+print(f"Q13: Max Drawdown of Hi 20 (LargeCap): {hi20_max_dd_value*100:.2f}%")
+print(f"Q14: Max Drawdown Date of Hi 20 (LargeCap): {hi20_max_dd_date.strftime('%Y-%m')}")
 
-print(f"[1999–2015] Annualized Return of Lo 20: {lo20_ann_return_9915*100:.2f}%")
-print(f"[1999–2015] Annualized Volatility of Lo 20: {lo20_ann_vol_9915*100:.2f}%")
-print(f"[1999–2015] Annualized Return of Hi 20: {hi20_ann_return_9915*100:.2f}%")
-print(f"[1999–2015] Annualized Volatility of Hi 20: {hi20_ann_vol_9915*100:.2f}%")
-
-# --- Drawdown calculations for 1999-2015 ---
-lo20_dd_value, lo20_dd_date = max_drawdown(lo20_9915)
-hi20_dd_value, hi20_dd_date = max_drawdown(hi20_9915)
-
-if lo20_dd_date is not None:
-    print(f"[1999–2015] Max Drawdown of Lo 20: {lo20_dd_value*100:.2f}% (Occurred: {lo20_dd_date.strftime('%Y-%m')})")
-else:
-    print("[1999–2015] Max Drawdown of Lo 20: N/A (no data)")
-if hi20_dd_date is not None:
-    print(f"[1999–2015] Max Drawdown of Hi 20: {hi20_dd_value*100:.2f}% (Occurred: {hi20_dd_date.strftime('%Y-%m')})")
-else:
-    print("[1999–2015] Max Drawdown of Hi 20: N/A (no data)")
+# --- Optional: Plotting returns ---
+# lo20_returns.plot(title="Lo 20 Monthly Returns")
+# hi20_returns.plot(title="Hi 20 Monthly Returns")
+# plt.show()
