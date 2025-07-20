@@ -155,6 +155,9 @@ HTML_FORM = '''
       border-radius: 1rem;
       margin-bottom: 1.5rem;
       padding: 1rem;
+      width: 100%;
+      max-width: 100vw;
+      overflow-x: auto;
     }
     .lux-card, .lux-results, .result-table, .result-section, .result-title, .lux-btn {
       font-family: 'Montserrat', sans-serif;
@@ -165,9 +168,15 @@ HTML_FORM = '''
       letter-spacing: 1px;
     }
     @media (max-width: 600px) {
-      .lux-card, .lux-results { padding: 1rem; }
-      .lux-header { font-size: 1.2rem; }
-      .plotly-graph { padding: 0.2rem; }
+      .lux-card, .lux-results { padding: 0.5rem; }
+      .lux-header { font-size: 1rem; padding: 0.5rem 0 0.5rem 0; }
+      .lux-header img { height: 100px; max-width: 95vw; }
+      .lux-header p { font-size: 1rem; }
+      .lux-card, .lux-results { max-width: 98vw; }
+      .result-title { font-size: 1.05rem; }
+      .result-table th, .result-table td { padding: 0.3rem 0.5rem; font-size: 0.95rem; }
+      .plotly-graph { padding: 0.1rem; width: 100vw; max-width: 100vw; }
+      body { font-size: 0.98rem; }
     }
   </style>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
@@ -321,7 +330,7 @@ def upload_file():
             yaxis=dict(title='Return', color='#FFD700'),
             margin=dict(l=20, r=20, t=40, b=20)
         )
-        plot_html = pio.to_html(fig, full_html=False, include_plotlyjs=False, config={"displayModeBar": False})
+        plot_html = pio.to_html(fig, full_html=False, include_plotlyjs=False, config={"displayModeBar": False, "responsive": True})
 
         # Efficient Frontier (separate graph, use full available data)
         weights = np.linspace(0, 1, 100)
@@ -343,7 +352,7 @@ def upload_file():
             legend=dict(font=dict(color='#FFD700')),
             margin=dict(l=20, r=20, t=40, b=20)
         )
-        plot_html += pio.to_html(fig_frontier, full_html=False, include_plotlyjs=False, config={"displayModeBar": False})
+        plot_html += pio.to_html(fig_frontier, full_html=False, include_plotlyjs=False, config={"displayModeBar": False, "responsive": True})
 
         # Full Period (user-selected)
         results += f"""
@@ -448,4 +457,4 @@ def upload_file():
     return render_template_string(HTML_FORM, results=results)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0')
