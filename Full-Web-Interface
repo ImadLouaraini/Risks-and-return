@@ -5,8 +5,18 @@ import os
 from flask import Flask, request, render_template_string
 import plotly.graph_objs as go
 import plotly.io as pio
+import shutil
 
 app = Flask(__name__)
+
+# Ensure static directory and logo image exist
+STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
+LOGO_SRC = r"C:\Users\imadl\Downloads\Black_and_Gold_Royal_Company_Logo__1_-removebg-preview.png"
+LOGO_DEST = os.path.join(STATIC_DIR, 'capital_logo.png')
+if not os.path.exists(STATIC_DIR):
+    os.makedirs(STATIC_DIR)
+if os.path.exists(LOGO_SRC):
+    shutil.copy(LOGO_SRC, LOGO_DEST)
 
 HTML_FORM = '''
 <!doctype html>
@@ -16,61 +26,85 @@ HTML_FORM = '''
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Luxury Portfolio & Hedge Fund Analyzer</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet">
   <style>
     body {
-      background: linear-gradient(135deg, #181c2b 0%, #232946 100%);
-      color: #f5f5f5;
+      background: linear-gradient(135deg, #56382D 0%, #1B1821 100%);
+      color: #FFD700;
       font-family: 'Montserrat', sans-serif;
       min-height: 100vh;
     }
     .lux-header {
-      background: #10131e;
-      color: #FFD700;
-      padding: 2rem 0 1rem 0;
+      background: #935F4C;
+      color: #FFFAE5;
+      padding: 0.5rem 0 0.5rem 0;
       text-align: center;
-      border-bottom: 2px solid #FFD70022;
-      box-shadow: 0 4px 24px #0004;
+      border-bottom: 2px solid #935F4C44;
+      box-shadow: 0 4px 24px #56382D44;
     }
     .lux-header img {
-      height: 60px;
+      height: 220px;
+      max-width: 660px;
+      margin-bottom: 0;
+      margin-top: 0;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .lux-header h1 {
+      color: #FFFAE5;
+      margin-top: 0.2rem;
       margin-bottom: 0.5rem;
+      font-weight:900; 
+      letter-spacing:2px;
+    }
+    .lux-header p {
+      color: #FFD700;
+      font-size:1.2rem;
+      opacity: 0.95;
+      margin-top: 0;
+      margin-bottom: 0;
+      text-align: center;
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.5px;
     }
     .lux-card {
-      background: #232946;
+      background: #935F4C;
       border-radius: 1.5rem;
-      box-shadow: 0 4px 32px #0002;
-      border: 1px solid #FFD70033;
+      box-shadow: 0 4px 32px #56382D22;
+      border: 1px solid #56382D33;
       padding: 2rem 2.5rem;
       margin: 2rem auto;
       max-width: 600px;
+      color: #FFFAE5;
     }
     .lux-card label {
-      color: #FFD700;
+      color: #FFFAE5;
       font-weight: 700;
       margin-bottom: 0.5rem;
     }
     .lux-btn {
-      background: linear-gradient(90deg, #FFD700 0%, #ffb300 100%);
-      color: #181c2b;
+      background: linear-gradient(90deg, #FFFAE5 0%, #935F4C 100%);
+      color: #1B1821;
       font-weight: 900;
       border: none;
       border-radius: 2rem;
       padding: 0.75rem 2.5rem;
       font-size: 1.2rem;
       transition: box-shadow 0.2s, transform 0.2s;
-      box-shadow: 0 2px 8px #FFD70033;
+      box-shadow: 0 2px 8px #56382D33;
     }
     .lux-btn:hover {
-      box-shadow: 0 4px 24px #FFD70099;
+      box-shadow: 0 4px 24px #935F4C99;
       transform: translateY(-2px) scale(1.03);
-      color: #232946;
+      color: #56382D;
     }
     .lux-results {
-      background: #181c2b;
+      background: #935F4C;
       border-radius: 1.5rem;
-      border: 1px solid #FFD70033;
-      box-shadow: 0 2px 16px #0002;
+      border: 1px solid #935F4C33;
+      box-shadow: 0 2px 16px #56382D22;
       padding: 2rem;
       margin: 2rem auto 0 auto;
       max-width: 700px;
@@ -84,28 +118,30 @@ HTML_FORM = '''
     .result-title {
       font-size: 1.3rem;
       font-weight: 900;
-      color: #FFD700;
+      color: #FFFAE5;
       margin-bottom: 0.5rem;
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      font-family: 'Playfair Display', serif;
+      letter-spacing: 1px;
     }
     .result-table {
-      color: #fff;
-      background: #232946;
+      color: #1B1821;
+      background: #FFFAE5;
       border-radius: 1rem;
-      border: 1px solid #FFD70033;
+      border: 1px solid #935F4C33;
       margin-bottom: 1rem;
       width: 100%;
     }
     .result-table th, .result-table td {
       padding: 0.5rem 1rem;
-      border-bottom: 1px solid #FFD70022;
+      border-bottom: 1px solid #935F4C22;
     }
     .result-table th {
-      color: #FFD700;
+      color: #56382D;
       font-weight: 700;
-      background: #232946;
+      background: #FFFAE5;
     }
     .result-table tr:last-child td {
       border-bottom: none;
@@ -115,10 +151,18 @@ HTML_FORM = '''
       margin-right: 0.3rem;
     }
     .plotly-graph {
-      background: #232946;
+      background: #FFFAE5;
       border-radius: 1rem;
       margin-bottom: 1.5rem;
       padding: 1rem;
+    }
+    .lux-card, .lux-results, .result-table, .result-section, .result-title, .lux-btn {
+      font-family: 'Montserrat', sans-serif;
+    }
+    .result-title, .lux-header h1 {
+      font-family: 'Playfair Display', serif;
+      font-weight: 900;
+      letter-spacing: 1px;
     }
     @media (max-width: 600px) {
       .lux-card, .lux-results { padding: 1rem; }
@@ -130,9 +174,8 @@ HTML_FORM = '''
 </head>
 <body>
   <div class="lux-header">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4c/Crown_of_Saint_Stephen.svg" alt="King Crown Logo">
-    <h1 style="font-weight:900; letter-spacing:2px;">Crown Capital Analytics</h1>
-    <p style="font-size:1.2rem; color:#FFD700cc;">Analyze your portfolios and hedge fund indices with style</p>
+    <img src="{{ url_for('static', filename='capital_logo.png') }}" alt="Capital Logo">
+    <p>Analyze your portfolios and hedge fund indices with style</p>
   </div>
   <div class="lux-card">
     <form method=post enctype=multipart/form-data>
@@ -250,10 +293,26 @@ def upload_file():
 
         # Plotly graph for returns (main period)
         fig = go.Figure()
+        # Main return lines
         fig.add_trace(go.Scatter(x=lo20_main.index, y=lo20_main, mode='lines', name='Lo 20', line=dict(color='#FFD700', width=3)))
         fig.add_trace(go.Scatter(x=hi20_main.index, y=hi20_main, mode='lines', name='Hi 20', line=dict(color='#00BFFF', width=3)))
+        # Drawdown calculation
+        lo20_wealth = (1 + lo20_main).cumprod()
+        lo20_peaks = lo20_wealth.cummax()
+        lo20_drawdown = (lo20_wealth - lo20_peaks) / lo20_peaks
+        hi20_wealth = (1 + hi20_main).cumprod()
+        hi20_peaks = hi20_wealth.cummax()
+        hi20_drawdown = (hi20_wealth - hi20_peaks) / hi20_peaks
+        # Drawdown area
+        fig.add_trace(go.Scatter(x=lo20_main.index, y=lo20_drawdown, fill='tozeroy', mode='lines', name='Lo 20 Drawdown', line=dict(color='rgba(255,215,0,0.3)', width=0)))
+        fig.add_trace(go.Scatter(x=hi20_main.index, y=hi20_drawdown, fill='tozeroy', mode='lines', name='Hi 20 Drawdown', line=dict(color='rgba(0,191,255,0.3)', width=0)))
+        # Expected return lines
+        lo20_exp_ret = annualized_return(lo20_main) / 12
+        hi20_exp_ret = annualized_return(hi20_main) / 12
+        fig.add_trace(go.Scatter(x=lo20_main.index, y=[lo20_exp_ret]*len(lo20_main), mode='lines', name='Lo 20 Expected Return', line=dict(color='#FFD700', dash='dash', width=2)))
+        fig.add_trace(go.Scatter(x=hi20_main.index, y=[hi20_exp_ret]*len(hi20_main), mode='lines', name='Hi 20 Expected Return', line=dict(color='#00BFFF', dash='dash', width=2)))
         fig.update_layout(
-            title='Portfolio Returns Over Time',
+            title='Portfolio Returns, Drawdown, and Expected Return (Main Period)',
             plot_bgcolor='#232946',
             paper_bgcolor='#232946',
             font=dict(color='#FFD700'),
@@ -263,6 +322,28 @@ def upload_file():
             margin=dict(l=20, r=20, t=40, b=20)
         )
         plot_html = pio.to_html(fig, full_html=False, include_plotlyjs=False, config={"displayModeBar": False})
+
+        # Efficient Frontier (separate graph, use full available data)
+        weights = np.linspace(0, 1, 100)
+        port_returns = []
+        port_vols = []
+        for w in weights:
+            port_r = w * lo20_returns + (1 - w) * hi20_returns
+            port_returns.append(annualized_return(port_r))
+            port_vols.append(annualized_volatility(port_r))
+        fig_frontier = go.Figure()
+        fig_frontier.add_trace(go.Scatter(x=port_vols, y=port_returns, mode='lines+markers', name='Efficient Frontier', line=dict(color='#FF5733', width=3)))
+        fig_frontier.update_layout(
+            title='Efficient Frontier (Full Period)',
+            xaxis=dict(title='Annualized Volatility', color='#FFD700'),
+            yaxis=dict(title='Annualized Return', color='#FFD700'),
+            plot_bgcolor='#232946',
+            paper_bgcolor='#232946',
+            font=dict(color='#FFD700'),
+            legend=dict(font=dict(color='#FFD700')),
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        plot_html += pio.to_html(fig_frontier, full_html=False, include_plotlyjs=False, config={"displayModeBar": False})
 
         # Full Period (user-selected)
         results += f"""
